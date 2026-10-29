@@ -1,0 +1,8 @@
+Use case: logo-brand
+Asset type: production macOS application icon for BranchDock, a native Git branches and worktrees manager.
+Primary request: Create one polished, distinctive app icon: a bold lime-green branching path combining three Git commit nodes with a subtle dock/base, suggesting parallel worktrees converging. Match the application's charcoal-black and fresh lime-green identity (#A3E06E).
+Style: premium macOS icon, precise minimal geometric symbol, softly sculpted satin material, subtle depth and lighting, exceptionally legible at 32 pixels.
+Composition: a single centered dark charcoal rounded-square macOS squircle tile, with generous balanced inner padding and one large simple green branching emblem. Tile fills approximately 88 percent of a square 1024 by 1024 canvas; transparent outside the tile. Straight-on orthographic front view, no perspective.
+Constraints: one icon only; no text, no letters, no wordmark, no watermark, no presentation mockup, no surrounding objects. Genuine transparent background outside the rounded tile.
+
+Generated with the built-in image_gen tool. The original PNG is packaged into macOS ICNS using sips and iconutil.
