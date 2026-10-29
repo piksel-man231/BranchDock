@@ -1,5 +1,7 @@
 # BranchDock
 
+> **Готовая сборка уже в проекте:** [скачать BranchDock для macOS](https://github.com/piksel-man231/BranchDock/raw/refs/heads/main/downloads/BranchDock-0.3.0-macos-arm64.zip). ZIP с приложением находится в папке [`downloads`](downloads). Для Mac с Apple Silicon (M1+), macOS 14+. Собирать из исходников не требуется.
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 **Open source проект** под лицензией [MIT](LICENSE). Исходный код открыт: приложение можно использовать, изменять и распространять с сохранением уведомления об авторских правах и текста лицензии.
