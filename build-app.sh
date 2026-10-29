@@ -1,5 +1,11 @@
 #!/bin/zsh
 set -eu
+INSTALL=true
+case "${1:-}" in
+    "") ;;
+    --no-install) INSTALL=false ;;
+    *) echo "Usage: $0 [--no-install]" >&2; exit 2 ;;
+esac
 cd "${0:A:h}"
 swift build -c release
 if [[ -f Assets/BranchDock.png ]]; then ./build-icon.sh; fi
@@ -26,6 +32,10 @@ if [[ -f "$APP/Contents/Resources/BranchDock.icns" ]]; then
 fi
 codesign --force --sign - "$APP"
 codesign --verify --deep --strict "$APP"
+if [[ "$INSTALL" == false ]]; then
+    echo "Готово: $APP"
+    exit 0
+fi
 INSTALL_DIR=$(mktemp -d /Applications/.branchdock-install.XXXXXX)
 trap 'rm -rf "$INSTALL_DIR"' EXIT
 ditto "$APP" "$INSTALL_DIR/BranchDock.app"

@@ -1,0 +1,1 @@
+149de4797478c258df5bf3583ac8778a888c8398fa697c19fad69a39096ad3f1  BranchDock-0.3.0-macos-arm64.zip
