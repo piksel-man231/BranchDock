@@ -101,6 +101,8 @@ struct MainView: View {
     @State private var switchSheet = false
     @State private var showLog = false
     @State private var removal: RemovalTarget?
+    @State private var selectedBranches: Set<String> = []
+    @State private var batchRequest: BranchBatchRequest?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -129,6 +131,7 @@ struct MainView: View {
                                 Image(systemName: "magnifyingglass").foregroundStyle(muted)
                                 TextField("Найти ветку…", text: $search).textFieldStyle(.plain).frame(width: 170)
                             }.overlay(alignment: .bottom) { Color.white.opacity(0.07).frame(height: 1) }
+                            if section != "Worktrees" { batchToolbar(repo) }
                             Group {
                                 if section == "Карта" {
                                     branchMap(repo)
@@ -188,6 +191,9 @@ struct MainView: View {
         .sheet(item: $removal) { target in
             if let root = store.repo?.root { RemovalView(root: root, target: target).environmentObject(store) }
         }
+        .sheet(item: $batchRequest) { request in
+            BranchBatchView(request: request).environmentObject(store)
+        }
         .sheet(isPresented: $showLog) {
             VStack(alignment: .leading, spacing: 20) {
                 Text("Последняя операция").font(.title2.bold())
@@ -232,7 +238,7 @@ struct MainView: View {
                 Circle().fill(accent).frame(width: 6, height: 6)
                 Text("Локальное подключение").font(.system(size: 10)).foregroundStyle(muted)
             }
-            Text("BRANCHDOCK / 0.4").font(.system(size: 9, design: .monospaced)).foregroundStyle(muted.opacity(0.6)).padding(.top, 12)
+            Text("BRANCHDOCK / 0.4.1").font(.system(size: 9, design: .monospaced)).foregroundStyle(muted.opacity(0.6)).padding(.top, 12)
         }.padding(20).frame(width: 205).background(Color.black.opacity(0.18))
             .overlay(alignment: .trailing) { Color.white.opacity(0.06).frame(width: 1) }
     }
@@ -320,20 +326,32 @@ struct MainView: View {
                 Text("Коммиты по Git · после Fetch").font(.system(size: 10)).foregroundStyle(muted)
             }.padding(.bottom, 16)
             HStack(spacing: 12) {
+                Color.clear.frame(width: 18, height: 18)
                 Text("FEATURE").frame(maxWidth: .infinity, alignment: .leading)
                 Text("TEST").frame(width: 115, alignment: .leading)
-                Text("MAIN · ПРОД").frame(width: 115, alignment: .leading)
+                Text("MAIN · ПРОД").frame(width: 105, alignment: .leading)
+                Color.clear.frame(width: 58, height: 18)
             }.font(.system(size: 9, weight: .semibold)).foregroundStyle(muted).padding(.bottom, 10)
             if entries.isEmpty { Text("Feature-веток пока нет.").foregroundStyle(muted).padding(.vertical, 20) }
             ForEach(entries) { branch in
                 HStack(spacing: 12) {
+                    if repo.branches.contains(where: { $0.name == branch.name }) {
+                        branchSelection(branch)
+                    } else {
+                        Color.clear.frame(width: 18, height: 18)
+                    }
                     VStack(alignment: .leading, spacing: 3) {
                         Text(branch.name).font(.system(size: 12, weight: .medium, design: .monospaced)).lineLimit(1)
                         Text(repo.branches.contains { $0.name == branch.name } ? "Локальная · \(branch.head)" : "Remote · \(branch.head)")
                             .font(.system(size: 9)).foregroundStyle(muted)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                     mapStatus(branch.inTest).frame(width: 115, alignment: .leading)
-                    mapStatus(branch.inMain).frame(width: 115, alignment: .leading)
+                    mapStatus(branch.inMain).frame(width: 105, alignment: .leading)
+                    if repo.branches.contains(where: { $0.name == branch.name }) {
+                        branchActions(branch, repo: repo)
+                    } else {
+                        Color.clear.frame(width: 58, height: 18)
+                    }
                 }.padding(.vertical, 10).overlay(alignment: .bottom) { Color.white.opacity(0.06).frame(height: 1) }
             }
             Text("● Все коммиты ветки есть в целевой ветке · ○ есть невлитые · ? нет данных. Это не статус CI или деплоя.")
@@ -351,6 +369,46 @@ struct MainView: View {
         }.font(.system(size: 10))
     }
 
+    func branchSelection(_ branch: Branch) -> some View {
+        Button {
+            if selectedBranches.contains(branch.name) { selectedBranches.remove(branch.name) }
+            else { selectedBranches.insert(branch.name) }
+        } label: {
+            Image(systemName: selectedBranches.contains(branch.name) ? "checkmark.square.fill" : "square")
+                .foregroundStyle(selectedBranches.contains(branch.name) ? accent : muted)
+        }.buttonStyle(.plain).disabled(!Pipeline.isFeature(branch.name))
+            .help("Выбрать feature для пакетного действия")
+    }
+
+    func branchActions(_ branch: Branch, repo: Repository) -> some View {
+        let tree = repo.worktrees.first { $0.branch == branch.name }
+        return HStack(spacing: 7) {
+            Button { batchRequest = BranchBatchRequest(branches: [branch], action: .mergeIntoMain) } label: {
+                Image(systemName: "arrow.triangle.merge")
+            }.disabled(!Pipeline.isFeature(branch.name) || repo.worktrees.first(where: { $0.branch == "main" }) == nil)
+                .help("Быстро влить feature в main…")
+            Button { removal = tree.map(RemovalTarget.worktree) ?? .branch(branch) } label: {
+                Image(systemName: "trash")
+            }.disabled(branch.name == "main" || branch.name == "test" || tree?.path == repo.worktrees.first?.path || tree?.locked == true)
+                .help(tree == nil ? "Удалить локальную ветку…" : "Удалить worktree…")
+        }.buttonStyle(.plain).foregroundStyle(muted).frame(width: 58)
+    }
+
+    func batchToolbar(_ repo: Repository) -> some View {
+        let visible = repo.branches.filter { Pipeline.isFeature($0.name) && (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)) }
+        let chosen = repo.branches.filter { selectedBranches.contains($0.name) && Pipeline.isFeature($0.name) }
+        return HStack(spacing: 12) {
+            Button("Выбрать видимые") { selectedBranches.formUnion(visible.map(\.name)) }.disabled(visible.isEmpty)
+            Button("Снять выбор") { selectedBranches.removeAll() }.disabled(selectedBranches.isEmpty)
+            Spacer()
+            Text("Выбрано: \(chosen.count)").foregroundStyle(muted)
+            Button("Влить в main…") { batchRequest = BranchBatchRequest(branches: chosen, action: .mergeIntoMain) }
+                .disabled(chosen.isEmpty || !repo.worktrees.contains(where: { $0.branch == "main" }))
+            Button("Удалить…", role: .destructive) { batchRequest = BranchBatchRequest(branches: chosen, action: .delete) }
+                .disabled(chosen.isEmpty)
+        }.font(.system(size: 10)).buttonStyle(.bordered).controlSize(.small)
+    }
+
     func metric(_ label: String, value: Int, icon: String) -> some View {
         VStack(alignment: .leading, spacing: 15) {
             HStack { Text(label).font(.system(size: 9, weight: .medium)).tracking(0.8); Spacer(); Image(systemName: icon) }.foregroundStyle(muted)
@@ -361,7 +419,8 @@ struct MainView: View {
 
     func worktreeCard(_ tree: Worktree, repo: Repository) -> some View {
         let branch = repo.branches.first { $0.name == tree.branch }
-        return Button { store.selected = tree.path } label: {
+        return HStack(spacing: 10) {
+        Button { store.selected = tree.path } label: {
             HStack(alignment: .top, spacing: 14) {
                 Image(systemName: "arrow.triangle.branch").font(.system(size: 17)).foregroundStyle(store.selected == tree.path ? accent : muted)
                     .frame(width: 36, height: 36).background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
@@ -387,11 +446,23 @@ struct MainView: View {
             }.padding(17).background(store.selected == tree.path ? accent.opacity(0.045) : panelColor, in: RoundedRectangle(cornerRadius: 9))
                 .overlay { RoundedRectangle(cornerRadius: 9).strokeBorder(store.selected == tree.path ? accent.opacity(0.6) : .white.opacity(0.07)) }
         }.buttonStyle(.plain)
+        if let branch, Pipeline.isFeature(branch.name) {
+            VStack(spacing: 12) {
+                Button { batchRequest = BranchBatchRequest(branches: [branch], action: .mergeIntoMain) } label: {
+                    Image(systemName: "arrow.triangle.merge")
+                }.help("Влить в main…").disabled(!repo.worktrees.contains { $0.branch == "main" })
+                Button { removal = .worktree(tree) } label: {
+                    Image(systemName: "trash")
+                }.help("Удалить worktree…").disabled(tree.path == repo.worktrees.first?.path || tree.locked)
+            }.buttonStyle(.plain).foregroundStyle(muted).frame(width: 24)
+        }
+        }
     }
 
     func branchRow(_ branch: Branch, repo: Repository) -> some View {
         let tree = repo.worktrees.first { $0.branch == branch.name }
         return HStack(spacing: 12) {
+            branchSelection(branch)
             Image(systemName: "arrow.triangle.branch").foregroundStyle(tree == nil ? muted : accent)
             VStack(alignment: .leading, spacing: 6) {
                 Text(branch.name).font(.system(size: 12, weight: .medium, design: .monospaced))
@@ -402,9 +473,7 @@ struct MainView: View {
             Button(tree == nil ? "Создать worktree" : "Показать") {
                 if let tree { store.selected = tree.path; section = "Worktrees" } else { createBranch = branch.name; createSheet = true }
             }.buttonStyle(.bordered).controlSize(.small)
-            Button(role: .destructive) { removal = .branch(branch) } label: { Image(systemName: "trash") }
-                .buttonStyle(.borderless).disabled(tree != nil)
-                .help(tree == nil ? "Удалить локальную ветку" : "Ветка занята: сначала смените её или удалите worktree")
+            branchActions(branch, repo: repo)
         }.padding(15).background(panelColor, in: RoundedRectangle(cornerRadius: 8))
     }
 

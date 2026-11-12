@@ -1,6 +1,56 @@
 import SwiftUI
 import AppKit
 
+struct BranchBatchRequest: Identifiable {
+    let id = UUID()
+    let branches: [Branch]
+    let action: BranchBatchAction
+}
+
+struct BranchBatchView: View {
+    let request: BranchBatchRequest
+    @EnvironmentObject var store: Store
+    @Environment(\.dismiss) private var dismiss
+    @State private var preview: String?
+    @State private var problem = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Label(request.action == .mergeIntoMain ? "Влить в main" : "Удалить ветки", systemImage: request.action == .mergeIntoMain ? "arrow.triangle.merge" : "trash")
+                .font(.title2.bold())
+            Text("Выбрано: \(request.branches.count)").foregroundStyle(.secondary)
+            if let preview {
+                ScrollView { Text(preview).font(.system(.body, design: .monospaced)).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled) }
+                    .frame(maxHeight: 280)
+                Text(request.action == .mergeIntoMain
+                    ? "Ветки будут влиты по порядку. При конфликте операция остановится; уже выполненные слияния останутся в main. Push main выполните отдельно."
+                    : "Удаляются только локальные ветки без worktree и без уникальных коммитов вне main. При ошибке операция остановится; уже удалённые ветки останутся удалёнными.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            } else if problem.isEmpty {
+                ProgressView("Проверка веток…").controlSize(.small)
+            }
+            if !problem.isEmpty { Text(problem).font(.caption).foregroundStyle(.orange).textSelection(.enabled) }
+            HStack {
+                Spacer()
+                Button("Отмена") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(request.action == .mergeIntoMain ? "Влить в main" : "Удалить ветки", role: request.action == .delete ? .destructive : nil) {
+                    guard let root = store.repo?.root else { return }
+                    let branches = request.branches, action = request.action
+                    dismiss()
+                    store.perform(action == .mergeIntoMain ? "Слияние веток в main" : "Удаление веток") {
+                        try Git.applyBranchBatch(root, branches: branches, action: action)
+                    }
+                }.buttonStyle(.borderedProminent).disabled(preview == nil)
+            }
+        }.padding(28).frame(width: 570)
+            .task {
+                guard let root = store.repo?.root else { return }
+                do { preview = try await Task.detached { try Git.branchBatchPreview(root, branches: request.branches, action: request.action) }.value }
+                catch { problem = error.localizedDescription }
+            }
+    }
+}
+
 struct RemovalView: View {
     let root: String
     let target: RemovalTarget

@@ -235,6 +235,27 @@ final class GitTests: XCTestCase {
         XCTAssertThrowsError(try Git.push(feature, remote: "origin"))
     }
 
+    func testBatchMergeAndDeletePreflight() throws {
+        _ = try Git.run(repo, ["branch", "feature/one"])
+        _ = try Git.run(repo, ["branch", "feature/two"])
+        let initial = try Git.load(repo)
+        let branches = initial.branches.filter { $0.name.hasPrefix("feature/") }
+        XCTAssertEqual(branches.count, 2)
+        XCTAssertTrue(try Git.branchBatchPreview(repo, branches: branches, action: .mergeIntoMain).contains("feature/one"))
+        XCTAssertTrue(try Git.applyBranchBatch(repo, branches: branches, action: .mergeIntoMain).contains("Push ветки"))
+        XCTAssertTrue(try Git.branchBatchPreview(repo, branches: branches, action: .delete).contains("feature/two"))
+        _ = try Git.applyBranchBatch(repo, branches: branches, action: .delete)
+        XCTAssertFalse(try Git.load(repo).branches.contains { $0.name.hasPrefix("feature/") })
+    }
+
+    func testBatchRejectsOccupiedAndChangedBranches() throws {
+        let path = try create()
+        let branch = try XCTUnwrap(Git.load(repo).branches.first { $0.name == "feature/search" })
+        XCTAssertThrowsError(try Git.branchBatchPreview(repo, branches: [branch], action: .delete))
+        try commit(path, text: "new\n", file: "new.txt")
+        XCTAssertThrowsError(try Git.branchBatchPreview(repo, branches: [branch], action: .mergeIntoMain))
+    }
+
     func testMapIncludesRemoteOnlyFeatures() throws {
         let remote = folder.appendingPathComponent("remote.git").path
         _ = try Git.run(repo, ["init", "--bare", remote])

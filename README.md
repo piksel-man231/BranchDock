@@ -1,6 +1,6 @@
 # BranchDock
 
-> **Готовая сборка уже в проекте:** [скачать BranchDock для macOS](https://github.com/piksel-man231/BranchDock/raw/refs/heads/main/downloads/BranchDock-0.4.0-macos-arm64.zip). ZIP с приложением находится в папке [`downloads`](downloads). Для Mac с Apple Silicon (M1+), macOS 14+. Собирать из исходников не требуется.
+> **Готовая сборка уже в проекте:** [скачать BranchDock для macOS](https://github.com/piksel-man231/BranchDock/raw/refs/heads/main/downloads/BranchDock-0.4.1-macos-arm64.zip). ZIP с приложением находится в папке [`downloads`](downloads). Для Mac с Apple Silicon (M1+), macOS 14+. Собирать из исходников не требуется.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -10,7 +10,7 @@
 
 ## Скачать для macOS
 
-Готовое приложение: [BranchDock 0.4.0 — macOS Apple Silicon (ZIP)](https://github.com/piksel-man231/BranchDock/raw/refs/heads/main/downloads/BranchDock-0.4.0-macos-arm64.zip).
+Готовое приложение: [BranchDock 0.4.1 — macOS Apple Silicon (ZIP)](https://github.com/piksel-man231/BranchDock/raw/refs/heads/main/downloads/BranchDock-0.4.1-macos-arm64.zip).
 
 Требования: **macOS 14+**, Mac с **Apple Silicon (M1 и новее)** и установленный Git (`xcode-select --install`). Сборка для Intel пока не опубликована.
 
@@ -114,6 +114,8 @@ open /Applications/BranchDock.app
 Форма MR в `test` поддерживает GitLab, включая свои серверы, с HTTPS и SSH remote. Она открывает браузер с заполненными исходной и целевой ветками, без автоматического создания или слияния MR. Удаление исходной feature в MR должно быть выключено. Если remote не подходит, создайте MR вручную.
 
 На вкладке **Карта** одновременно видны локальные и известные remote feature-ветки и наличие их коммитов в `test` и `main`. В инспекторе выбранной feature показаны те же признаки. Используются remote-tracking refs `origin` (или первого remote); без remote — локальные ветки. **Fetch** обновляет эти данные. Это проверка истории Git, а не статуса CI, приёмки или деплоя. При squash/rebase Git может не распознать включение исходных коммитов: для удаления такой feature включите «Удалить ветку, даже если Git считает её неслитой».
+
+На карте, в списке веток и на карточках worktree есть быстрые действия для слияния локальной feature в `main` и удаления. Перед слиянием показывается число входящих коммитов; push `main` выполняется отдельно. Для нескольких локальных feature отметьте строки на карте или во вкладке **Ветки**, затем выберите **Влить в main…** или **Удалить…**. Пакетное удаление допускает только свободные локальные ветки без уникальных коммитов вне `main`; worktree и remote-ветки оно не удаляет. Действия выполняются по порядку и останавливаются при первой ошибке, оставляя уже выполненные изменения.
 
 ### Пересоздание test
 

@@ -47,6 +47,11 @@ enum RemovalTarget: Identifiable {
     }
 }
 
+enum BranchBatchAction {
+    case mergeIntoMain
+    case delete
+}
+
 struct RemovalPreview {
     let tree: Worktree?
     let branch: Branch?
@@ -171,6 +176,56 @@ enum Git {
             throw GitFailure(message: "Сначала завершите или отмените merge.")
         }
         return try run(tree.path, ["push", "--set-upstream", remote, "refs/heads/\(tree.branch):refs/heads/\(tree.branch)"])
+    }
+
+    static func branchBatchPreview(_ repo: String, branches: [Branch], action: BranchBatchAction) throws -> String {
+        guard !branches.isEmpty, Set(branches.map(\.name)).count == branches.count else {
+            throw GitFailure(message: "Выберите неповторяющиеся feature-ветки.")
+        }
+        let current = try load(repo)
+        var lines: [String] = []
+        let main = current.worktrees.first { $0.branch == "main" }
+        if action == .mergeIntoMain {
+            guard let main else { throw GitFailure(message: "Для слияния нужен worktree с веткой main.") }
+            guard !main.dirty, !main.merging else { throw GitFailure(message: "В worktree main есть изменения или незавершённый merge.") }
+        }
+        for expected in branches {
+            guard Pipeline.isFeature(expected.name), let branch = current.branches.first(where: { $0.name == expected.name }), branch.head == expected.head else {
+                throw GitFailure(message: "Ветка \(expected.name) изменилась или недоступна. Обновите репозиторий.")
+            }
+            switch action {
+            case .mergeIntoMain:
+                guard let main else { throw GitFailure(message: "Worktree main исчез.") }
+                let count = try run(main.path, ["rev-list", "--count", "HEAD..refs/heads/\(branch.name)"])
+                lines.append("\(branch.name) · \(count) входящих коммитов")
+            case .delete:
+                _ = try removalPreview(repo, target: .branch(branch))
+                try protectBranchDeletion(repo, branch: branch.name)
+                lines.append("\(branch.name) · только локальная ветка")
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    static func applyBranchBatch(_ repo: String, branches: [Branch], action: BranchBatchAction) throws -> String {
+        _ = try branchBatchPreview(repo, branches: branches, action: action)
+        let main = try load(repo).worktrees.first { $0.branch == "main" }
+        var completed: [String] = []
+        for branch in branches {
+            do {
+                switch action {
+                case .mergeIntoMain:
+                    guard let main else { throw GitFailure(message: "Worktree main исчез.") }
+                    _ = try merge(main, source: branch.name)
+                case .delete:
+                    _ = try deleteBranch(repo, branch: branch)
+                }
+                completed.append(branch.name)
+            } catch {
+                throw GitFailure(message: "Готово: \(completed.joined(separator: ", ")).\nОстановлено на \(branch.name): \(error.localizedDescription)")
+            }
+        }
+        return "Готово: \(completed.joined(separator: ", "))." + (action == .mergeIntoMain ? "\nПроверьте main и выполните Push ветки для публикации." : "")
     }
 
     static func removalPreview(_ repo: String, target: RemovalTarget) throws -> RemovalPreview {

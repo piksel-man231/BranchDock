@@ -1,1 +1,1 @@
-a0cf7168afb48e2949f203fd231222f85ad4aae900fae4478afca4ab60af0d5a  BranchDock-0.4.0-macos-arm64.zip
+10640397cf14e7ccd35cbce9761ae6a1118f7337ec3dfae895e3d29f731f1602  BranchDock-0.4.1-macos-arm64.zip
