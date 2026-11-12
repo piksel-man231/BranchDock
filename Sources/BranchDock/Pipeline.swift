@@ -23,8 +23,8 @@ enum Pipeline {
     }
 
     static func mergeRequestURL(project: URL, source: String, target: String) throws -> URL {
-        guard isFeature(source), ["test", "main"].contains(target) else {
-            throw GitFailure(message: "MR создаётся из feature в test или main. Слияние test → main запрещено.")
+        guard isFeature(source), target == "test" else {
+            throw GitFailure(message: "MR создаётся из feature в test. В main изменения отправляются прямым push после слияния feature.")
         }
         var parts = URLComponents(url: project.appendingPathComponent("-/merge_requests/new"), resolvingAgainstBaseURL: false)!
         parts.queryItems = [
@@ -70,7 +70,7 @@ extension Git {
         if !force, Pipeline.isFeature(branch) {
             let main = try mainReference(repo)
             guard let count = try? run(repo, ["rev-list", "--count", "\(main)..refs/heads/\(branch)"]), count == "0" else {
-                throw GitFailure(message: "Сохраните feature до приёмки и слияния через MR в main. Ветка ещё содержит коммиты вне main; после MR выполните Fetch.")
+                throw GitFailure(message: "Сохраните feature до приёмки и слияния в main. Ветка ещё содержит коммиты вне main; после push выполните Fetch.")
             }
         }
     }

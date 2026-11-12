@@ -217,15 +217,37 @@ final class GitTests: XCTestCase {
         }
     }
 
-    func testMainMergeAndPushAreBlockedIncludingStaleWorktree() throws {
+    func testMainAcceptsFeatureMergeAndDirectPushButRejectsTestMerge() throws {
         let path = try create()
+        let remote = folder.appendingPathComponent("remote.git").path
+        _ = try Git.run(repo, ["init", "--bare", remote])
+        _ = try Git.run(repo, ["remote", "add", "origin", remote])
+        try commit(path, text: "feature\n", file: "feature.txt")
+        _ = try Git.run(repo, ["branch", "test"])
         let main = try XCTUnwrap(Git.load(repo).worktrees.first { $0.path == repo })
-        XCTAssertThrowsError(try Git.mergePreview(main, source: "feature/search"))
+        XCTAssertTrue(try Git.mergePreview(main, source: "feature/search").contains("Входящих коммитов: 1"))
         XCTAssertThrowsError(try Git.merge(main, source: "test"))
-        XCTAssertThrowsError(try Git.push(main, remote: "origin"))
+        _ = try Git.merge(main, source: "feature/search")
+        _ = try Git.push(main, remote: "origin")
+        XCTAssertEqual(try Git.run(remote, ["rev-parse", "main"]), try Git.run(repo, ["rev-parse", "main"]))
         let feature = try XCTUnwrap(Git.load(repo).worktrees.first { $0.path == path })
         _ = try Git.run(path, ["switch", "-c", "other"])
         XCTAssertThrowsError(try Git.push(feature, remote: "origin"))
+    }
+
+    func testMapIncludesRemoteOnlyFeatures() throws {
+        let remote = folder.appendingPathComponent("remote.git").path
+        _ = try Git.run(repo, ["init", "--bare", remote])
+        _ = try Git.run(repo, ["remote", "add", "origin", remote])
+        _ = try Git.run(repo, ["branch", "test"])
+        _ = try Git.run(repo, ["push", "origin", "main", "test"])
+        _ = try Git.run(repo, ["push", "origin", "main:feature/remote"])
+        _ = try Git.run(repo, ["fetch", "origin"])
+        let snapshot = try Git.load(repo)
+        XCTAssertFalse(snapshot.branches.contains { $0.name == "feature/remote" })
+        let branch = try XCTUnwrap(snapshot.remoteBranches.first { $0.name == "feature/remote" })
+        XCTAssertEqual(branch.inMain, true)
+        XCTAssertEqual(branch.inTest, true)
     }
 
     func testProtectedBranchesCannotBeDeleted() throws {
@@ -279,7 +301,7 @@ final class GitTests: XCTestCase {
     func testGitLabMRUsesSameFeatureAndRetainsSource() throws {
         let project = try XCTUnwrap(Pipeline.projectURL("git@gitlab.example.com:team/sub/project.git"))
         XCTAssertEqual(project.absoluteString, "https://gitlab.example.com/team/sub/project")
-        for target in ["test", "main"] {
+        for target in ["test"] {
             let url = try Pipeline.mergeRequestURL(project: project, source: "feature/поиск&filter", target: target)
             let items = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
             XCTAssertEqual(items.first { $0.name == "merge_request[source_branch]" }?.value, "feature/поиск&filter")
@@ -287,6 +309,7 @@ final class GitTests: XCTestCase {
             XCTAssertEqual(items.first { $0.name == "merge_request[remove_source_branch]" }?.value, "false")
         }
         XCTAssertThrowsError(try Pipeline.mergeRequestURL(project: project, source: "test", target: "main"))
+        XCTAssertThrowsError(try Pipeline.mergeRequestURL(project: project, source: "feature/search", target: "main"))
         XCTAssertNil(Pipeline.projectURL("/local/repo.git"))
         XCTAssertNil(Pipeline.projectURL("git@github.com:team/repo.git"))
         XCTAssertEqual(Pipeline.projectURL("https://user:secret@gitlab.example.com/team/repo.git")?.absoluteString,

@@ -32,6 +32,7 @@ struct Repository {
     let root: String
     let worktrees: [Worktree]
     let branches: [Branch]
+    let remoteBranches: [Branch]
     let remotes: [String]
 }
 
@@ -99,9 +100,9 @@ enum Git {
         }
         let remotes = try run(root, ["remote"]).split(separator: "\n").map(String.init)
         let preferredRemote = remotes.contains("origin") ? "origin" : remotes.first
-        func containsFeature(_ feature: String, in target: String) -> Bool? {
+        func containsFeature(_ featureRef: String, in target: String) -> Bool? {
             let ref = preferredRemote.map { "refs/remotes/\($0)/\(target)" } ?? "refs/heads/\(target)"
-            guard let count = try? run(root, ["rev-list", "--count", "\(ref)..refs/heads/\(feature)"]) else { return nil }
+            guard let count = try? run(root, ["rev-list", "--count", "\(ref)..\(featureRef)"]) else { return nil }
             return count == "0"
         }
         let branches = try run(root, ["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)%00%(objectname:short)%00%(upstream:short)%00%(upstream:track)%00%(committerdate:relative)%00%(subject)", "refs/heads/"])
@@ -109,10 +110,23 @@ enum Git {
                 let f = line.components(separatedBy: "\0")
                 guard f.count == 6 else { return nil }
                 return Branch(name: f[0], head: f[1], upstream: f[2], tracking: f[3], updated: f[4], subject: f[5],
-                    inTest: Pipeline.isFeature(f[0]) ? containsFeature(f[0], in: "test") : nil,
-                    inMain: Pipeline.isFeature(f[0]) ? containsFeature(f[0], in: "main") : nil)
+                    inTest: Pipeline.isFeature(f[0]) ? containsFeature("refs/heads/\(f[0])", in: "test") : nil,
+                    inMain: Pipeline.isFeature(f[0]) ? containsFeature("refs/heads/\(f[0])", in: "main") : nil)
             }
-        return Repository(root: worktrees.first?.path ?? root, worktrees: worktrees, branches: branches, remotes: remotes)
+        let localNames = Set(branches.map(\.name))
+        let remoteBranches: [Branch] = preferredRemote.map { remote in
+            let raw = (try? run(root, ["for-each-ref", "--format=%(refname:short)%00%(objectname:short)", "refs/remotes/\(remote)/"])) ?? ""
+            return raw.split(separator: "\n").compactMap { line -> Branch? in
+                let fields = line.components(separatedBy: "\0")
+                guard fields.count == 2, fields[0] != "\(remote)/HEAD", fields[0].hasPrefix(remote + "/") else { return nil }
+                let name = String(fields[0].dropFirst(remote.count + 1))
+                guard !localNames.contains(name) else { return nil }
+                return Branch(name: name, head: fields[1], upstream: fields[0], tracking: "", updated: "", subject: "",
+                    inTest: Pipeline.isFeature(name) ? containsFeature("refs/remotes/\(remote)/\(name)", in: "test") : nil,
+                    inMain: Pipeline.isFeature(name) ? containsFeature("refs/remotes/\(remote)/\(name)", in: "main") : nil)
+            }
+        } ?? []
+        return Repository(root: worktrees.first?.path ?? root, worktrees: worktrees, branches: branches, remoteBranches: remoteBranches, remotes: remotes)
     }
 
     static func create(_ repo: String, branch: String, base: String, path: String, existing: Bool) throws -> String {
@@ -123,8 +137,8 @@ enum Git {
     }
 
     static func mergePreview(_ tree: Worktree, source: String) throws -> String {
-        guard tree.branch != "main" else {
-            throw GitFailure(message: "Изменения в main принимаются через MR с зелёным CI из той же feature. Прямой merge, включая test → main, запрещён.")
+        guard tree.branch != "main" || Pipeline.isFeature(source) else {
+            throw GitFailure(message: "В main можно влить только feature-ветку. Слияние test → main запрещено.")
         }
         guard tree.branch != "Detached HEAD" else { throw GitFailure(message: "Для merge нужна ветка, а не detached HEAD.") }
         guard try run(tree.path, ["branch", "--show-current"]) == tree.branch else {
@@ -152,7 +166,6 @@ enum Git {
 
     static func push(_ tree: Worktree, remote: String) throws -> String {
         try validateCurrentBranch(tree)
-        guard tree.branch != "main" else { throw GitFailure(message: "Прямой push в main запрещён. Откройте MR из принятой feature с зелёным CI.") }
         guard tree.branch != "Detached HEAD" else { throw GitFailure(message: "Сначала выберите ветку.") }
         guard !tree.merging, (try? run(tree.path, ["rev-parse", "--verify", "MERGE_HEAD"])) == nil else {
             throw GitFailure(message: "Сначала завершите или отмените merge.")

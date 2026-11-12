@@ -90,7 +90,7 @@ struct MainView: View {
     @EnvironmentObject var store: Store
     @EnvironmentObject var ci: CIStore
     @State private var search = ""
-    @State private var section = "Worktrees"
+    @State private var section = "Карта"
     @State private var createSheet = false
     @State private var createBranch: String?
     @State private var mergeSheet = false
@@ -109,13 +109,14 @@ struct MainView: View {
                 topbar
                 if let repo = store.repo {
                     HStack(alignment: .top, spacing: 0) {
+                        ScrollView {
                         VStack(alignment: .leading, spacing: 24) {
                             heading(repo)
                             pipeline
                             summary(repo)
                             HStack {
                                 HStack(spacing: 20) {
-                                    ForEach(["Worktrees", "Ветки"], id: \.self) { item in
+                                    ForEach(["Карта", "Worktrees", "Ветки"], id: \.self) { item in
                                         Button { section = item } label: {
                                             VStack(spacing: 12) {
                                                 Text(item).fontWeight(.medium).foregroundStyle(section == item ? .white : muted)
@@ -128,8 +129,10 @@ struct MainView: View {
                                 Image(systemName: "magnifyingglass").foregroundStyle(muted)
                                 TextField("Найти ветку…", text: $search).textFieldStyle(.plain).frame(width: 170)
                             }.overlay(alignment: .bottom) { Color.white.opacity(0.07).frame(height: 1) }
-                            ScrollView {
-                                if section == "Worktrees" {
+                            Group {
+                                if section == "Карта" {
+                                    branchMap(repo)
+                                } else if section == "Worktrees" {
                                     LazyVStack(spacing: 12) {
                                         ForEach(repo.worktrees.filter { search.isEmpty || $0.branch.localizedCaseInsensitiveContains(search) || $0.path.localizedCaseInsensitiveContains(search) }) { tree in
                                             worktreeCard(tree, repo: repo)
@@ -145,7 +148,8 @@ struct MainView: View {
                                 }
                             }
                             footer
-                        }.padding(28).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        }.padding(28).frame(maxWidth: .infinity, alignment: .topLeading)
+                        }.frame(maxWidth: .infinity, maxHeight: .infinity)
                         if let tree = store.tree { inspector(tree, repo: repo) }
                     }
                 } else {
@@ -228,7 +232,7 @@ struct MainView: View {
                 Circle().fill(accent).frame(width: 6, height: 6)
                 Text("Локальное подключение").font(.system(size: 10)).foregroundStyle(muted)
             }
-            Text("BRANCHDOCK / 0.3").font(.system(size: 9, design: .monospaced)).foregroundStyle(muted.opacity(0.6)).padding(.top, 12)
+            Text("BRANCHDOCK / 0.4").font(.system(size: 9, design: .monospaced)).foregroundStyle(muted.opacity(0.6)).padding(.top, 12)
         }.padding(20).frame(width: 205).background(Color.black.opacity(0.18))
             .overlay(alignment: .trailing) { Color.white.opacity(0.06).frame(width: 1) }
     }
@@ -251,7 +255,7 @@ struct MainView: View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 9) {
                 Text("От feature до продакшена").font(.system(size: 27, weight: .semibold))
-                Text("Одна feature на весь путь: разработка, test, приёмка, MR в main.").font(.system(size: 12)).foregroundStyle(muted)
+                Text("Одна feature на весь путь: разработка, test, приёмка, merge и push в main.").font(.system(size: 12)).foregroundStyle(muted)
             }
             Spacer()
             Button { createBranch = nil; createSheet = true } label: { Label("Новый worktree", systemImage: "plus") }.buttonStyle(AccentButton())
@@ -260,12 +264,12 @@ struct MainView: View {
 
     var pipeline: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("main → feature → test → приёмка → та же feature → main")
+            Text("main → feature → test → приёмка → merge feature в main → push")
                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
                 .foregroundStyle(accent).fixedSize(horizontal: false, vertical: true)
             HStack(alignment: .top, spacing: 16) {
                 Text("TEST\nАвтодеплой после тестов и сборок")
-                Text("MAIN\nMR + зелёный CI")
+                Text("MAIN\nПрямой push после merge")
                 Text("ПРОД\nРучной деплой из CI")
             }.font(.system(size: 10)).foregroundStyle(muted).lineSpacing(5)
             HStack {
@@ -304,6 +308,49 @@ struct MainView: View {
         }
     }
 
+    func branchMap(_ repo: Repository) -> some View {
+        let entries = (repo.branches + repo.remoteBranches).filter {
+            Pipeline.isFeature($0.name) && (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search))
+        }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("КАРТА ВЕТОК").font(.system(size: 10, weight: .semibold)).tracking(1).foregroundStyle(muted)
+                Spacer()
+                Text("Коммиты по Git · после Fetch").font(.system(size: 10)).foregroundStyle(muted)
+            }.padding(.bottom, 16)
+            HStack(spacing: 12) {
+                Text("FEATURE").frame(maxWidth: .infinity, alignment: .leading)
+                Text("TEST").frame(width: 115, alignment: .leading)
+                Text("MAIN · ПРОД").frame(width: 115, alignment: .leading)
+            }.font(.system(size: 9, weight: .semibold)).foregroundStyle(muted).padding(.bottom, 10)
+            if entries.isEmpty { Text("Feature-веток пока нет.").foregroundStyle(muted).padding(.vertical, 20) }
+            ForEach(entries) { branch in
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(branch.name).font(.system(size: 12, weight: .medium, design: .monospaced)).lineLimit(1)
+                        Text(repo.branches.contains { $0.name == branch.name } ? "Локальная · \(branch.head)" : "Remote · \(branch.head)")
+                            .font(.system(size: 9)).foregroundStyle(muted)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    mapStatus(branch.inTest).frame(width: 115, alignment: .leading)
+                    mapStatus(branch.inMain).frame(width: 115, alignment: .leading)
+                }.padding(.vertical, 10).overlay(alignment: .bottom) { Color.white.opacity(0.06).frame(height: 1) }
+            }
+            Text("● Все коммиты ветки есть в целевой ветке · ○ есть невлитые · ? нет данных. Это не статус CI или деплоя.")
+                .font(.system(size: 10)).foregroundStyle(muted).padding(.top, 14)
+        }.padding(17).frame(maxWidth: .infinity, alignment: .leading)
+            .background(panelColor, in: RoundedRectangle(cornerRadius: 9))
+    }
+
+    func mapStatus(_ included: Bool?) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: included == nil ? "questionmark.circle" : included! ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(included == true ? accent : muted)
+            Text(included == nil ? "Нет данных" : included! ? "Влита" : "Не влита")
+                .foregroundStyle(included == true ? accent : muted)
+        }.font(.system(size: 10))
+    }
+
     func metric(_ label: String, value: Int, icon: String) -> some View {
         VStack(alignment: .leading, spacing: 15) {
             HStack { Text(label).font(.system(size: 9, weight: .medium)).tracking(0.8); Spacer(); Image(systemName: icon) }.foregroundStyle(muted)
@@ -322,7 +369,7 @@ struct MainView: View {
                     HStack(spacing: 8) {
                         Text(tree.branch).font(.system(size: 14, weight: .semibold, design: .monospaced)).lineLimit(1)
                         if tree.path == repo.worktrees.first?.path { pill("ОСНОВНОЙ", color: muted) }
-                        if tree.branch == "main" { pill("MR ONLY", color: accent) }
+                        if tree.branch == "main" { pill("ПРЯМОЙ PUSH", color: accent) }
                         if tree.branch == "test" { pill("АВТОДЕПЛОЙ", color: accent) }
                         if tree.locked { Image(systemName: "lock.fill").foregroundStyle(muted) }
                         Spacer(minLength: 0)
@@ -381,14 +428,14 @@ struct MainView: View {
                 Text("По Git после последнего Fetch. Наличие коммитов не подтверждает CI, деплой или приёмку.")
                     .font(.system(size: 10)).foregroundStyle(muted).fixedSize(horizontal: false, vertical: true)
             }
-            detail("ЭТАП ПРОЦЕССА", tree.branch == "main" ? "Защищённая main · изменения через MR с зелёным CI. Прод — ручной запуск в CI." : tree.branch == "test" ? "Интеграция feature · автодеплой после всех тестов и сборок. test → main запрещён." : "Сохраните эту feature до приёмки. После приёмки откройте MR из неё в main.")
+            detail("ЭТАП ПРОЦЕССА", tree.branch == "main" ? "После приёмки влейте feature сюда и отправьте main прямым push. Прод — ручной запуск в CI." : tree.branch == "test" ? "Интеграция feature · автодеплой после всех тестов и сборок. test → main запрещён." : "Сохраните эту feature до приёмки. Затем влейте её в main и отправьте main.")
             VStack(spacing: 9) {
                 if Pipeline.isFeature(tree.branch) {
-                    Button { mrSheet = true } label: { Label("MR: test / main…", systemImage: "arrow.triangle.pull").frame(maxWidth: .infinity) }
+                    Button { mrSheet = true } label: { Label("MR в test…", systemImage: "arrow.triangle.pull").frame(maxWidth: .infinity) }
                         .buttonStyle(.bordered).controlSize(.large).disabled(repo.remotes.isEmpty)
                 }
-                Button { pushSheet = true } label: { Label("Push ветки", systemImage: "arrow.up").frame(maxWidth: .infinity) }.buttonStyle(AccentButton()).disabled(repo.remotes.isEmpty || tree.branch == "Detached HEAD" || tree.branch == "main" || tree.merging)
-                Button { mergeSheet = true } label: { Label("Влить ветку сюда…", systemImage: "arrow.triangle.merge").frame(maxWidth: .infinity) }.buttonStyle(.bordered).controlSize(.large).disabled(tree.dirty || tree.merging || tree.branch == "Detached HEAD" || tree.branch == "main" || repo.branches.count < 2)
+                Button { pushSheet = true } label: { Label("Push ветки", systemImage: "arrow.up").frame(maxWidth: .infinity) }.buttonStyle(AccentButton()).disabled(repo.remotes.isEmpty || tree.branch == "Detached HEAD" || tree.merging)
+                Button { mergeSheet = true } label: { Label("Влить ветку сюда…", systemImage: "arrow.triangle.merge").frame(maxWidth: .infinity) }.buttonStyle(.bordered).controlSize(.large).disabled(tree.dirty || tree.merging || tree.branch == "Detached HEAD" || repo.branches.count < 2)
                 Button { switchSheet = true } label: { Label("Сменить ветку…", systemImage: "arrow.left.arrow.right").frame(maxWidth: .infinity) }.buttonStyle(.bordered).controlSize(.large).disabled(tree.dirty || tree.merging)
                 if tree.merging {
                     Button("Отменить merge", role: .destructive) { store.perform("Merge abort") { try Git.run(tree.path, ["merge", "--abort"]) } }.buttonStyle(.bordered)

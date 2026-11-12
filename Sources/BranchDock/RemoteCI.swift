@@ -245,7 +245,7 @@ struct CIClient {
             request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
             request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
         }
-        request.setValue("BranchDock/0.3", forHTTPHeaderField: "User-Agent")
+        request.setValue("BranchDock/0.4", forHTTPHeaderField: "User-Agent")
         let data: Data
         let response: URLResponse
         do { (data, response) = try await session.data(for: request) }

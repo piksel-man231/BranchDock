@@ -176,14 +176,14 @@ struct MergeView: View {
     @State private var preview = ""
     @State private var loading = false
     @State private var problem = ""
-    var candidates: [Branch] { store.tree?.branch == "main" ? [] : store.repo?.branches.filter { $0.name != store.tree?.branch } ?? [] }
+    var candidates: [Branch] { store.repo?.branches.filter { $0.name != store.tree?.branch && (store.tree?.branch != "main" || Pipeline.isFeature($0.name)) } ?? [] }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             Label("Влить ветку в worktree", systemImage: "arrow.triangle.merge").font(.title2.bold())
             Text("Цель: \(store.tree?.branch ?? "")").font(.headline)
             Text(store.tree?.path ?? "").font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
-            Text("В test вливайте feature для проверки; затем опубликуйте test. Автодеплой начнётся только после успешных тестов и сборок на сервере. В main изменения идут через MR.").font(.caption).foregroundStyle(.secondary)
+            Text("В test вливайте feature для проверки; затем опубликуйте test. После приёмки влейте эту feature в main и отправьте main прямым push.").font(.caption).foregroundStyle(.secondary)
             Picker("Исходная ветка", selection: $source) {
                 ForEach(candidates) { Text($0.name).tag($0.name) }
             }.onChange(of: source) { _, _ in preview = ""; problem = "" }
@@ -248,10 +248,8 @@ struct MergeRequestView: View {
     @EnvironmentObject var store: Store
     @Environment(\.dismiss) var dismiss
     @State private var remote = ""
-    @State private var target = "test"
     @State private var project: URL?
     @State private var problem = ""
-    @State private var accepted = false
     @State private var loading = false
 
     var body: some View {
@@ -261,16 +259,9 @@ struct MergeRequestView: View {
             Picker("Remote GitLab", selection: $remote) {
                 ForEach(store.repo?.remotes ?? [], id: \.self) { Text($0).tag($0) }
             }
-            Picker("Целевая ветка", selection: $target) {
-                Text("test · тестовый контур").tag("test")
-                Text("main · после приёмки").tag("main")
-            }.pickerStyle(.segmented)
-            Text(target == "test" ? "Опубликуйте feature кнопкой Push. После MR в test дождитесь всех тестов, сборок и автодеплоя, затем проведите приёмку. Сохраните исходную feature." : "Откройте MR из этой же feature в main. Проверьте зелёный CI на сервере. После слияния прод запускается вручную в CI.")
+            Text("Цель: test · тестовый контур").font(.headline)
+            Text("Опубликуйте feature кнопкой Push. После MR в test дождитесь тестов, сборок и автодеплоя, затем проведите приёмку. Сохраните исходную feature для слияния в main.")
                 .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            if target == "main" {
-                Toggle("Приёмка этой версии feature завершена", isOn: $accepted)
-                Text("Это ваше подтверждение; приложение не проверяет приёмку и CI.").font(.caption).foregroundStyle(.secondary)
-            }
             Text("Откроется форма GitLab без автоматического создания или слияния MR. Снимите удаление исходной ветки в MR в test.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if !problem.isEmpty { Text(problem).font(.caption).foregroundStyle(.orange) }
@@ -280,11 +271,11 @@ struct MergeRequestView: View {
                 Button("Открыть форму MR ↗") {
                     guard let project, let tree = store.tree else { return }
                     do {
-                        let url = try Pipeline.mergeRequestURL(project: project, source: tree.branch, target: target)
+                        let url = try Pipeline.mergeRequestURL(project: project, source: tree.branch, target: "test")
                         if NSWorkspace.shared.open(url) { dismiss() }
                         else { problem = "Не удалось открыть браузер." }
                     } catch { problem = error.localizedDescription }
-                }.buttonStyle(AccentButton()).disabled(loading || project == nil || (target == "main" && !accepted))
+                }.buttonStyle(AccentButton()).disabled(loading || project == nil)
             }
         }.padding(30).frame(width: 570)
             .onAppear {
